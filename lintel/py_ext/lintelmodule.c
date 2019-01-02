@@ -411,6 +411,13 @@ loadvid(PyObject *UNUSED(dummy), PyObject *args, PyObject *kw)
         bool is_size_dynamic = get_vid_width_height(&width,
                                                     &height,
                                                     vid_ctx.codec_context);
+													
+		bool full_video = false;
+		if (num_frames == 0) {
+			assert(should_random_seek == 0);
+			num_frames = vid_ctx.nb_frames;
+			full_video = true;
+		}
 
         PyByteArrayObject *frames = alloc_pyarray(num_frames*width*height*3);
         if (PyErr_Occurred() || (frames == NULL))
@@ -463,7 +470,13 @@ clean_up_av_frame:
 return_frames:
         if (!is_size_dynamic)
                 result = Py_BuildValue("Of", frames, seek_distance);
-        else
+        else if (full_video)
+				result = Py_BuildValue("Oiii",
+                                       frames,
+                                       width,
+                                       height,
+                                       num_frames);
+		else
                 result = Py_BuildValue("Oiif",
                                        frames,
                                        width,
