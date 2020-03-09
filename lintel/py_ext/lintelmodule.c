@@ -59,7 +59,9 @@ alloc_pyarray(const uint32_t out_size_bytes)
 
         Py_SIZE(frames) = out_size_bytes;
         frames->ob_alloc = out_size_bytes;
+#if PY_MAJOR_VERSION >= 3
         frames->ob_start = frames->ob_bytes;
+#endif
         frames->ob_exports = 0;
 
         return frames;
@@ -255,7 +257,7 @@ loadvid_frame_nums(PyObject *UNUSED(dummy), PyObject *args, PyObject *kw)
         uint32_t width = 0;
         uint32_t height = 0;
         /* NOTE(brendan): should_seek must be int (not bool) because Python. */
-        int32_t should_seek = false;
+        int32_t should_seek = 0;
         static char *kwlist[] = {"encoded_video",
                                  "frame_nums",
                                  "width",
@@ -265,7 +267,11 @@ loadvid_frame_nums(PyObject *UNUSED(dummy), PyObject *args, PyObject *kw)
 
         if (!PyArg_ParseTupleAndKeywords(args,
                                          kw,
-                                         "y#|$OIIp:loadvid_frame_nums",
+#if PY_MAJOR_VERSION >= 3
+                                         "y#|$OIIi:loadvid_frame_nums",
+#else
+                                         "s#|OIIi:loadvid_frame_nums",
+#endif
                                          kwlist,
                                          &video_bytes,
                                          &in_size_bytes,
@@ -311,8 +317,11 @@ loadvid_frame_nums(PyObject *UNUSED(dummy), PyObject *args, PyObject *kw)
 
                 return NULL;
         }
-
+#if PY_MAJOR_VERSION >= 3
         int32_t *frame_nums_buf = PyMem_RawMalloc(num_frames*sizeof(int32_t));
+#else
+        int32_t *frame_nums_buf = PyMem_Malloc(num_frames*sizeof(int32_t));
+#endif
         if (frame_nums_buf == NULL)
                 return PyErr_NoMemory();
 
@@ -335,10 +344,13 @@ loadvid_frame_nums(PyObject *UNUSED(dummy), PyObject *args, PyObject *kw)
                                      &vid_ctx,
                                      num_frames,
                                      frame_nums_buf,
-                                     should_seek);
-
+                                     should_seek != 0);
+#if PY_MAJOR_VERSION >= 3
         PyMem_RawFree(frame_nums_buf);
-
+#else
+        PyMem_Free(frame_nums_buf);
+#endif
+		
 clean_up:
         clean_up_vid_ctx(&vid_ctx);
 
@@ -362,7 +374,7 @@ loadvid(PyObject *UNUSED(dummy), PyObject *args, PyObject *kw)
         PyObject *result = NULL;
         const char *video_bytes = NULL;
         Py_ssize_t in_size_bytes = 0;
-        bool should_random_seek = true;
+        int32_t should_random_seek = 1;
         uint32_t width = 0;
         uint32_t height = 0;
         uint32_t num_frames = 32;
@@ -376,7 +388,11 @@ loadvid(PyObject *UNUSED(dummy), PyObject *args, PyObject *kw)
 
         if (!PyArg_ParseTupleAndKeywords(args,
                                          kw,
-                                         "y#|$pIII:loadvid",
+#if PY_MAJOR_VERSION >= 3
+                                         "y#|$iIII:loadvid",
+#else
+                                         "s#|iIII:loadvid",
+#endif
                                          kwlist,
                                          &video_bytes,
                                          &in_size_bytes,
@@ -395,6 +411,13 @@ loadvid(PyObject *UNUSED(dummy), PyObject *args, PyObject *kw)
         bool is_size_dynamic = get_vid_width_height(&width,
                                                     &height,
                                                     vid_ctx.codec_context);
+													
+		bool full_video = false;
+		if (num_frames == 0) {
+			assert(should_random_seek == 0);
+			num_frames = vid_ctx.nb_frames;
+			full_video = true;
+		}
 
         PyByteArrayObject *frames = alloc_pyarray(num_frames*width*height*3);
         if (PyErr_Occurred() || (frames == NULL))
@@ -413,7 +436,7 @@ loadvid(PyObject *UNUSED(dummy), PyObject *args, PyObject *kw)
 
         int64_t timestamp = seek_to_closest_keypoint(&seek_distance,
                                                      &vid_ctx,
-                                                     should_random_seek,
+                                                     should_random_seek != 0,
                                                      num_frames);
 
         /*
@@ -447,7 +470,13 @@ clean_up_av_frame:
 return_frames:
         if (!is_size_dynamic)
                 result = Py_BuildValue("Of", frames, seek_distance);
-        else
+        else if (full_video)
+				result = Py_BuildValue("Oiii",
+                                       frames,
+                                       width,
+                                       height,
+                                       num_frames);
+		else
                 result = Py_BuildValue("Oiif",
                                        frames,
                                        width,
@@ -476,6 +505,7 @@ static PyMethodDef lintel_methods[] = {
         {NULL, NULL, 0, NULL}
 };
 
+#if PY_MAJOR_VERSION >= 3
 static struct PyModuleDef
 lintelmodule = {
         PyModuleDef_HEAD_INIT,
@@ -488,13 +518,22 @@ lintelmodule = {
         NULL,
         NULL
 };
+#endif
 
 PyMODINIT_FUNC
+#if PY_MAJOR_VERSION >= 3
 PyInit__lintel(void)
+#else
+init_lintel(void)
+#endif
 {
         av_register_all();
         av_log_set_level(AV_LOG_ERROR);
         srand(time(NULL));
-
+		
+#if PY_MAJOR_VERSION >= 3
         return PyModuleDef_Init(&lintelmodule);
+#else
+		return Py_InitModule("_lintel", lintel_methods);
+#endif
 }

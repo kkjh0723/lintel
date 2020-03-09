@@ -199,7 +199,7 @@ loop_to_buffer_end(uint8_t *dest,
                    uint32_t bytes_per_frame,
                    int32_t num_requested_frames)
 {
-        fprintf(stderr, "Ran out of frames. Looping.\n");
+        //fprintf(stderr, "Ran out of frames. Looping.\n");
         if (frame_number == 0) {
                 fprintf(stderr, "No frames received after seek.\n");
                 return;
